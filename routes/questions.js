@@ -20,6 +20,7 @@ router.post("/", authenticate, adminOnly, async (req, res) => {
       minusT,
       options,
       optionsWithImgs,
+      questionImg,
     } = req.body;
 
     if (
@@ -48,6 +49,7 @@ router.post("/", authenticate, adminOnly, async (req, res) => {
       minusT,
       options,
       optionsWithImgs,
+      questionImg,
     });
 
     await question.save();
