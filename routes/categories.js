@@ -1,5 +1,5 @@
 const express = require("express");
-const { Category } = require("../models");
+const { Category, Question, Exam } = require("../models");
 const { authenticate, adminOnly } = require("../middleware/auth");
 
 const router = express.Router();
@@ -86,6 +86,26 @@ router.put("/:id", authenticate, adminOnly, async (req, res) => {
 // Delete category (admin only)
 router.delete("/:id", authenticate, adminOnly, async (req, res) => {
   try {
+    const questionCount = await Question.countDocuments({
+      categoryId: req.params.id,
+    });
+    const examCount = await Exam.countDocuments({
+      questions: {
+        $in: await Question.find({ categoryId: req.params.id }).distinct("_id"),
+      },
+    });
+    if (questionCount > 0) {
+      return res.status(400).json({
+        success: false,
+        message: `Cannot delete category with associated questions: ${questionCount} question(s) found.`,
+      });
+    }
+    if (examCount > 0) {
+      return res.status(400).json({
+        success: false,
+        message: `Cannot delete category associated with exams: ${examCount} exam(s) found.`,
+      });
+    }
     const category = await Category.findByIdAndDelete(req.params.id);
     if (!category) {
       return res

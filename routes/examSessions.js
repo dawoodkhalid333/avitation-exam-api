@@ -4,83 +4,6 @@ const { authenticate, adminOnly } = require("../middleware/auth");
 
 const router = express.Router();
 
-/**
- * Calculates remaining time in seconds for a session
- * Returns:
- *   - null → if exam is untimed
- *   - 0    → if time is up or exam is submitted
- *   - positive number → seconds remaining
- */
-const calculateRemainingTime = async (session) => {
-  // Ensure assignment and exam are populated
-  console.log("start of calculate");
-  if (!session.assignmentId || !session.assignmentId.examId) {
-    await session.populate({
-      path: "assignmentId",
-      populate: {
-        path: "examId",
-        select: "type duration",
-      },
-    });
-  }
-
-  const exam = session.assignmentId.examId;
-  // Untimed exam → no time limit
-  if (exam.type === "untimed") {
-    return null;
-  }
-
-  const totalDuration = exam.duration; // in seconds
-  const now = Math.floor(Date.now() / 1000);
-
-  // If already submitted → no time left
-  if (session.submittedAt) {
-    return 0;
-  }
-
-  let consumed = 0;
-
-  if (session.resumedAt) {
-    // Session is currently active
-    consumed = session.timeConsumedBeforeResume + (now - session.resumedAt);
-  } else {
-    // Session created but never resumed (or paused)
-    consumed = session.timeConsumedBeforeResume;
-  }
-
-  const remaining = totalDuration - consumed;
-  return remaining > 0 ? remaining : 0;
-};
-
-/**
- * Attaches remainingTime to one or many sessions
- */
-const attachRemainingTime = async (sessionOrSessions) => {
-  const sessionsOne = Array.isArray(sessionOrSessions)
-    ? sessionOrSessions
-    : [sessionOrSessions];
-
-  console.log("for loop starting");
-  for (const session of sessionsOne) {
-    // if (session && typeof session === "object") {
-    //   const plainSession = session.toObject
-    //     ? session.toObject()
-    //     : { ...session };
-    //   plainSession.remainingTime = await calculateRemainingTime(session);
-    //   Object.assign(session, plainSession);
-    // }
-    session.remainingTime = await calculateRemainingTime(session);
-  }
-  console.log("for loop ended");
-  //return Array.isArray(sessionOrSessions) ? sessions : sessions[0];
-  const isArrayVar = Array.isArray(sessionOrSessions);
-
-  // console.log("Bool check completed");
-  // console.log(Array.isArray(sessionsOne));
-  // console.log("Sessions: " + sessionsOne[0]);
-  return sessionsOne;
-};
-
 // Start exam session
 router.post("/start", authenticate, async (req, res) => {
   try {
@@ -135,6 +58,19 @@ router.post("/start", authenticate, async (req, res) => {
         .json({ success: false, message: "Exam not available at this time" });
     }
 
+    // Check for existing unsubmitted session
+    const existing = await ExamSession.findOne({
+      assignmentId,
+      submittedAt: null,
+    });
+
+    if (existing) {
+      return res.json({
+        success: true,
+        session: { id: existing._id },
+      });
+    }
+
     // Create new session
     const session = new ExamSession({
       assignmentId,
@@ -152,105 +88,17 @@ router.post("/start", authenticate, async (req, res) => {
         path: "examId",
         populate: [
           { path: "categoryId" },
-          { path: "questions", populate: { path: "categoryId" } },
+          // { path: "questions", populate: { path: "categoryId" } },
         ],
       },
     });
-
-    const firstQuestion = assignment.examId.questions[0] || null;
-    const sessionWithTime = await attachRemainingTime(session);
-    // console.log("Session:" + sessionWithTime);
 
     res.status(201).json({
       success: true,
-      session,
-      currentQuestion: firstQuestion,
-      currentQuestionIndex: 0,
-      totalQuestions: assignment.examId.questions.length,
-      remainingTime: session.remainingTime,
+      session: { id: session._id },
     });
   } catch (error) {
     console.error("Start session error:", error);
-    res.status(500).json({ success: false, message: error.message });
-  }
-});
-
-// Resume exam session
-router.post("/resume/:sessionId", authenticate, async (req, res) => {
-  try {
-    let session = await ExamSession.findById(req.params.sessionId).populate({
-      path: "assignmentId",
-      populate: {
-        path: "examId",
-        populate: [
-          { path: "categoryId" },
-          { path: "questions", populate: { path: "categoryId" } },
-        ],
-      },
-    });
-
-    if (!session) {
-      return res
-        .status(404)
-        .json({ success: false, message: "Session not found" });
-    }
-
-    const assignment = session.assignmentId;
-
-    // Check ownership
-    if (
-      req.user.role === "student" &&
-      assignment.studentId.toString() !== req.userId
-    ) {
-      return res.status(403).json({ success: false, message: "Access denied" });
-    }
-
-    // Already submitted?
-    if (session.submittedAt) {
-      return res
-        .status(400)
-        .json({ success: false, message: "Exam already submitted" });
-    }
-
-    const submittedAnswers = await SubmittedAnswer.find({
-      sessionId: session._id,
-    });
-
-    const answeredQuestionIds = submittedAnswers.map((a) =>
-      a.questionId.toString()
-    );
-
-    const questions = assignment.examId.questions;
-    const nextQuestionIndex = questions.findIndex(
-      (q) => !answeredQuestionIds.includes(q._id.toString())
-    );
-
-    if (nextQuestionIndex === -1) {
-      return res
-        .status(400)
-        .json({ success: false, message: "All questions answered" });
-    }
-
-    // Resume timer
-    const now = Math.floor(Date.now() / 1000);
-    session.resumedAt = now;
-
-    // If first resume, timeConsumedBeforeResume was 0
-    // Otherwise it already has accumulated time
-    await session.save();
-
-    const sessionWithTime = await attachRemainingTime(session);
-
-    res.json({
-      success: true,
-      session: sessionWithTime,
-      currentQuestion: questions[nextQuestionIndex],
-      currentQuestionIndex: nextQuestionIndex,
-      totalQuestions: questions.length,
-      answeredCount: submittedAnswers.length,
-    });
-  } catch (error) {
-    console.error("Resume session error:", error);
     res.status(500).json({ success: false, message: error.message });
   }
 });
@@ -295,8 +143,6 @@ router.get("/", authenticate, async (req, res) => {
       });
     }
 
-    sessions = await attachRemainingTime(sessions);
-
     res.json({ success: true, sessions });
   } catch (error) {
     console.error("Get sessions error:", error);
@@ -307,19 +153,22 @@ router.get("/", authenticate, async (req, res) => {
 // Get single session by ID
 router.get("/:id", authenticate, async (req, res) => {
   try {
-    const session = await ExamSession.findById(req.params.id).populate({
-      path: "assignmentId",
-      populate: [
-        {
-          path: "examId",
-          populate: [
-            { path: "categoryId" },
-            { path: "questions", populate: { path: "categoryId" } },
-          ],
-        },
-        { path: "studentId" },
-      ],
-    });
+    const session = await ExamSession.findById(req.params.id)
+      .populate({
+        path: "assignmentId",
+        populate: [
+          {
+            path: "examId",
+            populate: [
+              { path: "categoryId" },
+              { path: "questions", populate: { path: "categoryId" } },
+            ],
+          },
+          { path: "studentId" },
+        ],
+      })
+      .populate("answeredQuestions")
+      .populate("bookmarkedQuestions");
 
     if (!session) {
       return res
@@ -335,11 +184,273 @@ router.get("/:id", authenticate, async (req, res) => {
       return res.status(403).json({ success: false, message: "Access denied" });
     }
 
-    const sessionWithTime = await attachRemainingTime(session);
-
-    res.json({ success: true, session: sessionWithTime });
+    res.json({ success: true, session });
   } catch (error) {
     console.error("Get session by ID error:", error);
+    res.status(500).json({ success: false, message: error.message });
+  }
+});
+
+// Get remaining time for a session
+router.get("/remaining-time/:sessionId", authenticate, async (req, res) => {
+  try {
+    const session = await ExamSession.findById(req.params.sessionId).populate({
+      path: "assignmentId",
+      populate: {
+        path: "examId",
+        select: "type duration",
+      },
+    });
+
+    if (!session) {
+      return res
+        .status(404)
+        .json({ success: false, message: "Session not found" });
+    }
+
+    const assignment = session.assignmentId;
+
+    // Check ownership
+    if (
+      req.user.role === "student" &&
+      assignment.studentId.toString() !== req.userId
+    ) {
+      return res.status(403).json({ success: false, message: "Access denied" });
+    }
+
+    const exam = assignment.examId;
+
+    // Untimed exam → no time limit
+    if (exam.type === "untimed") {
+      return res.json({
+        success: true,
+        remainingTime: null,
+        type: "untimed",
+      });
+    }
+
+    // If already submitted → no time left
+    if (session.submittedAt) {
+      return res.json({
+        success: true,
+        remainingTime: 0,
+        type: "submitted",
+      });
+    }
+
+    const duration = exam.duration; // in seconds
+    let timeConsumed = session.totalTimeConsumed || 0;
+
+    const remainingTime = duration - timeConsumed;
+
+    res.json({
+      success: true,
+      remainingTime: remainingTime > 0 ? Math.floor(remainingTime) : 0,
+      type: "timed",
+    });
+  } catch (error) {
+    console.error("Get remaining time error:", error);
+    res.status(500).json({ success: false, message: error.message });
+  }
+});
+
+// Add a question to answeredQuestions array (idempotent)
+router.post(
+  "/:sessionId/answered/:questionId",
+  authenticate,
+  async (req, res) => {
+    try {
+      const { sessionId, questionId } = req.params;
+
+      const session = await ExamSession.findById(sessionId).populate({
+        path: "assignmentId",
+        populate: { path: "studentId examId", populate: { path: "questions" } },
+      });
+
+      if (!session) {
+        return res
+          .status(404)
+          .json({ success: false, message: "Session not found" });
+      }
+
+      // Ownership check
+      if (
+        req.user.role === "student" &&
+        session.assignmentId.studentId._id.toString() !== req.userId
+      ) {
+        return res
+          .status(403)
+          .json({ success: false, message: "Access denied" });
+      }
+
+      // Prevent action if already submitted
+      if (session.submittedAt) {
+        return res
+          .status(400)
+          .json({ success: false, message: "Exam already submitted" });
+      }
+
+      // Validate that the question belongs to this exam
+      const questionExists = session.assignmentId.examId.questions.some(
+        (q) => q._id.toString() === questionId
+      );
+      if (!questionExists) {
+        return res
+          .status(400)
+          .json({ success: false, message: "Invalid question for this exam" });
+      }
+
+      // Add if not already present (idempotent)
+      if (!session.answeredQuestions.includes(questionId)) {
+        session.answeredQuestions.push(questionId);
+        await session.save();
+      }
+
+      res.json({
+        success: true,
+        message: "Question marked as answered",
+        answeredQuestions: session.answeredQuestions,
+      });
+    } catch (error) {
+      console.error("Add answered question error:", error);
+      res.status(500).json({ success: false, message: error.message });
+    }
+  }
+);
+
+// Toggle bookmark for a question (add or remove)
+router.post(
+  "/:sessionId/bookmark/:questionId",
+  authenticate,
+  async (req, res) => {
+    try {
+      const { sessionId, questionId } = req.params;
+
+      const session = await ExamSession.findById(sessionId)
+        .populate({
+          path: "assignmentId",
+          populate: [{ path: "studentId" }, { path: "examId" }],
+        })
+        .populate({
+          path: "assignmentId.examId",
+          populate: { path: "questions" },
+        });
+
+      if (!session) {
+        return res
+          .status(404)
+          .json({ success: false, message: "Session not found" });
+      }
+
+      // Ownership check
+      if (
+        req.user.role === "student" &&
+        session.assignmentId.studentId._id.toString() !== req.userId
+      ) {
+        return res
+          .status(403)
+          .json({ success: false, message: "Access denied" });
+      }
+
+      // Prevent action if already submitted (optional — you might allow viewing bookmarks after submit)
+      if (session.submittedAt) {
+        return res
+          .status(400)
+          .json({ success: false, message: "Exam already submitted" });
+      }
+
+      // Validate question belongs to exam
+      const questionExists = session.assignmentId.examId.questions.some(
+        (q) => q._id.toString() === questionId
+      );
+      if (!questionExists) {
+        return res
+          .status(400)
+          .json({ success: false, message: "Invalid question for this exam" });
+      }
+
+      const bookmarkIndex = session.bookmarkedQuestions.findIndex(
+        (id) => id.toString() === questionId
+      );
+
+      if (bookmarkIndex === -1) {
+        // Add bookmark
+        session.bookmarkedQuestions.push(questionId);
+        await session.save();
+        return res.json({
+          success: true,
+          action: "bookmarked",
+          bookmarkedQuestions: session.bookmarkedQuestions,
+        });
+      } else {
+        // Remove bookmark
+        session.bookmarkedQuestions.splice(bookmarkIndex, 1);
+        await session.save();
+        return res.json({
+          success: true,
+          action: "unbookmarked",
+          bookmarkedQuestions: session.bookmarkedQuestions,
+        });
+      }
+    } catch (error) {
+      console.error("Toggle bookmark error:", error);
+      res.status(500).json({ success: false, message: error.message });
+    }
+  }
+);
+
+// Submit exam session - simply mark as submitted
+router.post("/:sessionId/submit", authenticate, async (req, res) => {
+  try {
+    const session = await ExamSession.findById(req.params.sessionId).populate({
+      path: "assignmentId",
+      populate: { path: "studentId" },
+    });
+
+    if (!session) {
+      return res
+        .status(404)
+        .json({ success: false, message: "Session not found" });
+    }
+
+    // Ownership check
+    if (
+      req.user.role === "student" &&
+      session.assignmentId.studentId._id.toString() !== req.userId
+    ) {
+      return res.status(403).json({ success: false, message: "Access denied" });
+    }
+
+    // Prevent double submission
+    if (session.submittedAt) {
+      return res
+        .status(400)
+        .json({ success: false, message: "Exam already submitted" });
+    }
+
+    // Mark as submitted with current ISO timestamp
+    session.submittedAt = new Date().toISOString();
+
+    // Stop any running timer state
+    session.isRunning = false;
+    session.runAt = null;
+    session.pausedAt = null;
+
+    await session.save();
+
+    // Increment attempts used on assignment
+    const assignment = session.assignmentId;
+    assignment.attemptsUsed += 1;
+
+    await assignment.save();
+
+    res.json({
+      success: true,
+      message: "Exam submitted successfully",
+      submittedAt: session.submittedAt,
+    });
+  } catch (error) {
+    console.error("Submit exam error:", error);
     res.status(500).json({ success: false, message: error.message });
   }
 });

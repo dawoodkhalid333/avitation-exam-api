@@ -1,5 +1,5 @@
 const express = require("express");
-const { Question } = require("../models");
+const { Question, Exam } = require("../models");
 const { authenticate, adminOnly } = require("../middleware/auth");
 
 const router = express.Router();
@@ -12,12 +12,14 @@ router.post("/", authenticate, adminOnly, async (req, res) => {
       categoryId,
       type,
       marks,
+      unit,
       difficulty,
       feedback,
       correctAnswer,
       plusT,
       minusT,
       options,
+      optionsWithImgs,
     } = req.body;
 
     if (
@@ -26,7 +28,7 @@ router.post("/", authenticate, adminOnly, async (req, res) => {
       !type ||
       !marks ||
       !difficulty ||
-      correctAnswer === undefined
+      !correctAnswer
     ) {
       return res
         .status(400)
@@ -38,12 +40,14 @@ router.post("/", authenticate, adminOnly, async (req, res) => {
       categoryId,
       type,
       marks,
+      unit,
       difficulty,
       feedback: feedback || null,
       correctAnswer,
       plusT,
       minusT,
       options,
+      optionsWithImgs,
     });
 
     await question.save();
@@ -105,7 +109,9 @@ router.put("/:id", authenticate, adminOnly, async (req, res) => {
     if (marks !== undefined) updateData.marks = marks;
     if (difficulty) updateData.difficulty = difficulty;
     if (feedback !== undefined) updateData.feedback = feedback;
-    if (correctAnswer !== undefined) updateData.correctAnswer = correctAnswer;
+    if (correctAnswer !== undefined)
+      updateData.correctAnswer =
+        correctAnswer?.mcq?.[0] || correctAnswer?.short?.value;
     if (plusT !== undefined) updateData.plusT = plusT;
     if (minusT !== undefined) updateData.minusT = minusT;
     if (options !== undefined) updateData.options = options;
@@ -131,6 +137,15 @@ router.put("/:id", authenticate, adminOnly, async (req, res) => {
 // Delete question (admin only)
 router.delete("/:id", authenticate, adminOnly, async (req, res) => {
   try {
+    const examsCount = await Exam.countDocuments({
+      questions: req.params.id,
+    });
+    if (examsCount > 0) {
+      return res.status(400).json({
+        success: false,
+        message: `Cannot delete question associated with exams: ${examsCount} exam(s) found.`,
+      });
+    }
     const question = await Question.findByIdAndDelete(req.params.id);
     if (!question) {
       return res

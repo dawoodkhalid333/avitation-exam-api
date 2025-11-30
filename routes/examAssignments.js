@@ -1,5 +1,5 @@
 const express = require("express");
-const { ExamAssignment, Exam } = require("../models");
+const { ExamAssignment, Exam, ExamSession } = require("../models");
 const { authenticate, adminOnly } = require("../middleware/auth");
 
 const router = express.Router();
@@ -42,16 +42,10 @@ router.post("/bulk", authenticate, adminOnly, async (req, res) => {
       const assignment = new ExamAssignment({
         examId,
         studentId,
-        allowedAttempts:
-          allowedAttempts !== undefined
-            ? allowedAttempts
-            : exam.defaultAttempts,
-        opensAt: opensAt !== undefined ? opensAt : exam.opensAt,
-        closesAt: closesAt !== undefined ? closesAt : exam.closesAt,
-        isReviewAllowed:
-          isReviewAllowed !== undefined
-            ? isReviewAllowed
-            : exam.reviewMode === "practice",
+        allowedAttempts: allowedAttempts || exam.defaultAttempts,
+        opensAt: opensAt || exam.opensAt,
+        closesAt: closesAt || exam.closesAt,
+        isReviewAllowed: isReviewAllowed || exam.reviewMode === "practice",
         bulkAssignmentId: bulkId,
         status: "active",
         attemptsUsed: 0,
@@ -86,7 +80,26 @@ router.get("/", authenticate, async (req, res) => {
       })
       .populate("studentId");
 
-    res.json({ success: true, assignments });
+    const assignmentIds = assignments?.map((ass) => ass._id);
+    const sessionToResume = await ExamSession.findOne({
+      assignmentId: { $in: assignmentIds },
+      submittedAt: null,
+    });
+
+    // Attach sessionToResume to the matching assignment
+    const assignmentsWithSession = assignments.map((assignment) => {
+      // Convert both IDs to string for comparison
+      const hasSession =
+        sessionToResume &&
+        sessionToResume.assignmentId.toString() === assignment._id.toString();
+
+      return {
+        ...assignment.toObject(),
+        sessionToResume: hasSession ? sessionToResume : null,
+      };
+    });
+
+    res.json({ success: true, assignments: assignmentsWithSession });
   } catch (error) {
     res.status(500).json({ success: false, message: error.message });
   }

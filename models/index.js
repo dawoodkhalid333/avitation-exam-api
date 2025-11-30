@@ -3,8 +3,8 @@ const mongoose = require("mongoose");
 // Plugin: expose id instead of _id
 const idPlugin = (schema) => {
   const transform = (doc, ret) => {
-    ret.id = ret._id.toString();
-    delete ret._id;
+    ret.id = ret?._id?.toString();
+    delete ret?._id;
     delete ret.__v;
     return ret;
   };
@@ -47,6 +47,7 @@ const questionSchema = new mongoose.Schema(
     },
     type: { type: String, enum: ["mcq", "short"], required: true },
     marks: { type: Number, required: true },
+    unit: { type: String, default: null },
     difficulty: {
       type: String,
       enum: ["hard", "medium", "easy"],
@@ -57,6 +58,13 @@ const questionSchema = new mongoose.Schema(
     plusT: { type: Number },
     minusT: { type: Number },
     options: [{ type: mongoose.Schema.Types.Mixed }],
+    optionsWithImgs: [
+      {
+        option: { type: String },
+        img: { type: String },
+      },
+    ],
+    questionImg: { type: String, default: null },
   },
   { timestamps: true }
 );
@@ -78,13 +86,14 @@ const examSchema = new mongoose.Schema(
     questions: [{ type: mongoose.Schema.Types.ObjectId, ref: "Question" }],
     defaultAttempts: { type: Number, required: true },
     defaultExpiry: { type: Number, required: true },
+    passingPercentage: { type: Number, required: true },
     reviewMode: {
       type: String,
       enum: ["practice", "assessment"],
       required: true,
     },
-    opensAt: { type: Number, required: true },
-    closesAt: { type: Number, required: true },
+    opensAt: { type: String, required: true },
+    closesAt: { type: String, required: true },
   },
   { timestamps: true }
 );
@@ -106,11 +115,12 @@ const examAssignmentSchema = new mongoose.Schema(
     },
     allowedAttempts: { type: Number, required: true },
     attemptsUsed: { type: Number, default: 0 },
-    opensAt: { type: Number, required: true },
-    closesAt: { type: Number, required: true },
+    opensAt: { type: String, required: true },
+    closesAt: { type: String, required: true },
     status: { type: String, enum: ["active", "disabled"], default: "active" },
     bulkAssignmentId: { type: String },
     isReviewAllowed: { type: Boolean, required: true },
+    lastAnsweredAt: { type: String, default: null },
   },
   { timestamps: true }
 );
@@ -126,9 +136,17 @@ const examSessionSchema = new mongoose.Schema(
       required: true,
     },
     grade: { type: Number, default: 0 },
-    resumedAt: { type: Number, default: null },
-    timeConsumedBeforeResume: { type: Number, default: 0 },
-    submittedAt: { type: Number, default: null },
+    submittedAt: { type: String, default: null },
+    isRunning: { type: Boolean, default: false },
+    runAt: { type: String, default: null },
+    pausedAt: { type: String, default: null },
+    totalTimeConsumed: { type: Number, default: 0 },
+    answeredQuestions: [
+      { type: mongoose.Schema.Types.ObjectId, ref: "SubmittedAnswer" },
+    ],
+    bookmarkedQuestions: [
+      { type: mongoose.Schema.Types.ObjectId, ref: "Question" },
+    ],
   },
   { timestamps: true }
 );

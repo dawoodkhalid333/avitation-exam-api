@@ -31,7 +31,8 @@ router.post("/", authenticate, adminOnly, async (req, res) => {
       !defaultExpiry ||
       !reviewMode ||
       !opensAt ||
-      !closesAt
+      !closesAt ||
+      !passingPercentage
     ) {
       return res
         .status(400)
@@ -63,13 +64,14 @@ router.post("/", authenticate, adminOnly, async (req, res) => {
       description,
       type,
       categoryId,
-      duration,
+      duration: duration * 60,
       questions: questions || [],
       defaultAttempts,
       defaultExpiry,
+      passingPercentage,
       reviewMode,
-      opensAt: opensAtDate / 1000, // Store as Date object
-      closesAt: closesAtDate / 1000, // Store as Date object
+      opensAt, // Store as Date object
+      closesAt, // Store as Date object
     });
 
     await exam.save();
@@ -121,6 +123,7 @@ router.put("/:id", authenticate, adminOnly, async (req, res) => {
       questions,
       defaultAttempts,
       defaultExpiry,
+      passingPercentage,
       reviewMode,
       opensAt,
       closesAt,
@@ -139,6 +142,8 @@ router.put("/:id", authenticate, adminOnly, async (req, res) => {
     if (reviewMode) updateData.reviewMode = reviewMode;
     if (opensAt !== undefined) updateData.opensAt = opensAt;
     if (closesAt !== undefined) updateData.closesAt = closesAt;
+    if (passingPercentage !== undefined)
+      updateData.passingPercentage = passingPercentage;
 
     const exam = await Exam.findByIdAndUpdate(req.params.id, updateData, {
       new: true,

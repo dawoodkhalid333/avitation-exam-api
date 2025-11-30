@@ -1,6 +1,6 @@
 const express = require("express");
 const bcrypt = require("bcryptjs");
-const { User } = require("../models");
+const { User, ExamAssignment } = require("../models");
 const { authenticate, adminOnly } = require("../middleware/auth");
 
 const router = express.Router();
@@ -102,6 +102,15 @@ router.put("/:id", authenticate, adminOnly, async (req, res) => {
 // Delete user (admin only)
 router.delete("/:id", authenticate, adminOnly, async (req, res) => {
   try {
+    const assignmentsCount = await ExamAssignment.countDocuments({
+      studentId: req.params.id,
+    });
+    if (assignmentsCount > 0) {
+      return res.status(400).json({
+        success: false,
+        message: `Cannot delete user with assigned exams: ${assignmentsCount} assignment(s) found.`,
+      });
+    }
     const user = await User.findByIdAndDelete(req.params.id);
     if (!user) {
       return res
