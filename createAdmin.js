@@ -4,11 +4,11 @@ const bcrypt = require("bcryptjs");
 const { User } = require("./models");
 
 mongoose.connect(process.env.MONGO_URI).then(async () => {
-  const hashedPassword = await bcrypt.hash("admin123", 10);
+  const hashedPassword = await bcrypt.hash("Av1n60!X", 10);
   const admin = new User({
     name: "Admin User",
     role: "admin",
-    email: "admin@example.com",
+    email: "admin@aviation1in60.com.au",
     hashedPassword,
   });
   await admin.save();

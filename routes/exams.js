@@ -20,6 +20,7 @@ router.post("/", authenticate, adminOnly, async (req, res) => {
       reviewMode,
       opensAt,
       closesAt,
+      passingPercentage,
     } = req.body;
 
     if (
