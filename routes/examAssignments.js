@@ -44,7 +44,16 @@ router.post("/bulk", authenticate, adminOnly, async (req, res) => {
         studentId,
         allowedAttempts: allowedAttempts || exam.defaultAttempts,
         opensAt: opensAt || exam.opensAt,
-        closesAt: closesAt || exam.closesAt,
+        closesAt:
+          closesAt ||
+          (exam.opensAt
+            ? (() => {
+                const d = new Date(exam.opensAt);
+                d.setUTCDate(d.getUTCDate() + Number(exam.defaultExpiry || 0));
+                d.setUTCHours(12, 59, 0, 0);
+                return d.toISOString();
+              })()
+            : null),
         isReviewAllowed: isReviewAllowed || exam.reviewMode === "practice",
         bulkAssignmentId: bulkId,
         status: "active",
