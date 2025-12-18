@@ -96,32 +96,46 @@ router.put("/:id", authenticate, adminOnly, async (req, res) => {
       categoryId,
       type,
       marks,
+      unit,
       difficulty,
       feedback,
       correctAnswer,
       plusT,
       minusT,
       options,
+      optionsWithImgs,
+      questionImg,
     } = req.body;
 
     const updateData = {};
-    if (text) updateData.text = text;
-    if (categoryId) updateData.categoryId = categoryId;
-    if (type) updateData.type = type;
+
+    // Only update fields that are provided
+    if (text !== undefined) updateData.text = text;
+    if (categoryId !== undefined) updateData.categoryId = categoryId;
+    if (type !== undefined) updateData.type = type;
     if (marks !== undefined) updateData.marks = marks;
-    if (difficulty) updateData.difficulty = difficulty;
-    if (feedback !== undefined) updateData.feedback = feedback;
-    if (correctAnswer !== undefined)
-      updateData.correctAnswer =
-        correctAnswer?.mcq?.[0] || correctAnswer?.short?.value;
+    if (unit !== undefined) updateData.unit = unit;
+    if (difficulty !== undefined) updateData.difficulty = difficulty;
+    if (feedback !== undefined) updateData.feedback = feedback || null;
+    if (correctAnswer !== undefined) updateData.correctAnswer = correctAnswer;
     if (plusT !== undefined) updateData.plusT = plusT;
     if (minusT !== undefined) updateData.minusT = minusT;
     if (options !== undefined) updateData.options = options;
+    if (optionsWithImgs !== undefined)
+      updateData.optionsWithImgs = optionsWithImgs;
+    if (questionImg !== undefined) updateData.questionImg = questionImg;
+
+    // Prevent empty updates
+    if (Object.keys(updateData).length === 0) {
+      return res
+        .status(400)
+        .json({ success: false, message: "No fields provided to update" });
+    }
 
     const question = await Question.findByIdAndUpdate(
       req.params.id,
       updateData,
-      { new: true }
+      { new: true, runValidators: true }
     ).populate("categoryId");
 
     if (!question) {
